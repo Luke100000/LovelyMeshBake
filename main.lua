@@ -3,14 +3,18 @@ local fastLove = require("libs/fastLove/fastLove")(512)
 local lovelyMeshBake = require("lovelyMeshBake")
 
 fastLove.image:setFilter("nearest")
+
 love.graphics.setBackgroundColor(0.1, 0.4, 0.5)
---love.window.setMode(1200, 800)
+love.window.setMode(1200, 800)
 love.window.setVSync(0)
 
 local textures = { }
 for _, v in ipairs(love.filesystem.getDirectoryItems("textures")) do
 	textures[v:sub(1, -5)] = love.graphics.newImage("textures/" .. v)
 end
+
+--use a custom shader to make use of our special var
+local shader = love.graphics.newShader("shader.glsl")
 
 --create the mesh format, we use an additional float to store the bevel
 local meshFormat = {
@@ -23,17 +27,9 @@ local meshFormat = {
 --create the renderer
 local renderer = lovelyMeshBake(fastLove.image, meshFormat)
 
---create our models
-local models = { }
-models.simple = renderer:newModel()
-						:vertex(0, 0):uv(0, 0):color(255, 255, 255, 255):next()
-						:vertex(1, 0):uv(1, 0):color(255, 255, 255, 255):next()
-						:vertex(1, 1):uv(1, 1):color(255, 255, 255, 255):next()
-						:vertex(0, 1):uv(0, 1):color(255, 255, 255, 255):next()
-						:face()
-						:build()
-
 --load the models. They can be quite bulky, therefore they are put in individual files
+local models = { }
+models.simple = require("models/simple")(renderer)
 models.edges = require("models/edges")(renderer)
 
 --quads for the tiled textures
@@ -56,33 +52,37 @@ local blocks = {
 	{ name = "stone", shadow = true, tiled = true },
 }
 
-local zoom = 10
+--set the world size, where 100 uses a example world
+local zoom = 100
 
 --the world, 0 is used for air
 local world
 if zoom == 100 then
 	world = {
-		{ 0, 0, 0, 0, 0, 0, 0, 0 },
-		{ 3, 0, 1, 0, 0, 0, 0, 0 },
-		{ 2, 3, 3, 0, 0, 0, 0, 3 },
-		{ 5, 2, 2, 3, 0, 4, 3, 2 },
-		{ 5, 5, 5, 2, 3, 3, 2, 5 },
-		{ 5, 5, 5, 5, 2, 2, 5, 5 },
+		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+		{ 3, 0, 1, 0, 0, 0, 0, 0, 0, 0, 3, 3 },
+		{ 2, 3, 3, 0, 0, 0, 0, 3, 3, 3, 2, 2 },
+		{ 5, 2, 2, 3, 0, 4, 3, 2, 2, 2, 5, 5 },
+		{ 5, 5, 5, 2, 3, 3, 2, 5, 5, 5, 5, 5 },
+		{ 5, 5, 5, 5, 2, 2, 5, 5, 5, 5, 5, 5 },
+		{ 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5 },
 	}
 else
-	local h = 600 / zoom
+	local h = 800 / zoom
 	local function noise(x, y)
 		return love.math.noise(x / 10, y / 10) - y / h < 0
 	end
 	world = { }
 	for y = 1, h do
 		world[y] = { }
-		for x = 1, 800 / zoom do
+		for x = 1, 1200 / zoom do
 			world[y][x] = noise(x, y) and 5 or noise(x, y + 1) and 2 or noise(x, y + 2) and 3 or 0
 		end
 	end
 end
 
+--helper function to check if a block "connects"
 local function hasShadow(x, y)
 	local block = world[y] and world[y][x]
 	return block and block > 0 and blocks[block].shadow
@@ -154,13 +154,12 @@ local function setBlock(bx, by, b)
 	end
 end
 
---use a custom shader to make use of our special var
-local shader = love.graphics.newShader("shader.glsl")
-
 function love.draw()
+	--draw the world
 	love.graphics.setShader(shader)
 	renderer:draw(0, 0, 0, zoom)
 	
+	--some stats
 	love.graphics.print(string.format("%d FPS\nCapacity: %d, %d\nIntegrity: %.3f, %.3f", love.timer.getFPS(), renderer.vertexCapacity, renderer.indexCapacity, renderer:getVertexIntegrity(), renderer:getIndexIntegrity()), 5, 5)
 	
 	--build
