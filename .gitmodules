@@ -1,12 +1,9 @@
 [submodule "libs/luaMatrices"]
 	path = libs/luaMatrices
-	url = git@github.com:Luke100000/luaMatrices.git
+	url = https://github.com/Luke100000/luaMatrices.git
 [submodule "libs/luaVectors"]
 	path = libs/luaVectors
-	url = git@github.com:Luke100000/luaVectors.git
-[submodule "libs/bitset"]
-	path = libs/bitset
-	url = git@github.com:Luke100000/bitset.git
+	url = https://github.com/Luke100000/luaVectors.git
 [submodule "libs/fastLove"]
 	path = libs/fastLove
-	url = git@github.com:Luke100000/fastLove.git
+	url = https://github.com/Luke100000/fastLove.git
