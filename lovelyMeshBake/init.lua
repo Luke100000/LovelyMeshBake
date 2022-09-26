@@ -11,7 +11,7 @@ function meta:newModel()
 	return builder(self)
 end
 
-function meta:add(model, quad, x, y, r, sx, sy, ox, oy, kx, ky)
+function meta:add(model, quad, variables, x, y, r, sx, sy, ox, oy, kx, ky)
 	--place vertices
 	local vertexOffset = false
 	while not vertexOffset do
@@ -32,6 +32,15 @@ function meta:add(model, quad, x, y, r, sx, sy, ox, oy, kx, ky)
 		self.vertices[i + vertexOffset - 1].v = model.vertices[i].v * quad[4] + quad[2]
 	end
 	
+	--set variables
+	if variables then
+		for i, value in ipairs(variables) do
+			for _, vertex in ipairs(model.variables[i]) do
+				self.vertices[vertex[1] + vertexOffset - 1][vertex[2]] = value
+			end
+		end
+	end
+	
 	--place indices
 	local indexOffset = false
 	while not indexOffset do
@@ -46,6 +55,12 @@ function meta:add(model, quad, x, y, r, sx, sy, ox, oy, kx, ky)
 	end
 	
 	self.dirty = true
+	
+	return vertexOffset, indexOffset
+end
+
+function meta:remove(vertexOffset, indexOffset)
+
 end
 
 function meta:translate(x, y)

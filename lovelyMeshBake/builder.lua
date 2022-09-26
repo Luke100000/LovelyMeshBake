@@ -19,14 +19,14 @@ local function constructor(renderer)
 	b.lookup = { }
 	b.formatLookup = { }
 	b.toIndex = { }
-	b.toKey = { }
+	b.toAttribute = { }
 	for _, f in ipairs(renderer.meshFormat) do
 		b.lookup[f[4]] = f[5]
 		b.formatLookup[f[4]] = f[2]
 		for i = 1, f[3] do
 			b.vertexSize = b.vertexSize + 1
 			b.toIndex[f[5][i]] = b.vertexSize
-			b.toKey[b.vertexSize] = f[5][i]
+			b.toAttribute[b.vertexSize] = f[5][i]
 		end
 	end
 	
@@ -40,6 +40,35 @@ local function constructor(renderer)
 	b:nextVertex()
 	
 	return b
+end
+
+--sets the default values for a given attribute
+function builder:default(attribute, ...)
+	local arg = { ... }
+	for i = 1, #self.lookup[attribute] do
+		local var = self.lookup[attribute][i]
+		self.empty.__index[self.toIndex[var]] = arg[i]
+	end
+	return self
+end
+
+--variables allows to set values at runtime
+function builder:variables(...)
+	self.variables = { }
+	self.variablesLookup = { }
+	for _, v in ipairs({ ... }) do
+		local t = { }
+		table.insert(self.variables, t)
+		self.variablesLookup[v] = t
+	end
+	return self
+end
+
+--a shortcut, since uv and texture coord are often the same
+function builder:vuv(x, y)
+	self:vertex(x, y)
+	self:uv(x, y)
+	return self
 end
 
 --set any additional data
@@ -80,8 +109,16 @@ function builder:build()
 		
 		for _, vertex in ipairs(face) do
 			local vert = self.vertices[v]
-			for index, value in ipairs(vertex) do
-				vert[self.toKey[index]] = value
+			for index = 1, self.vertexSize do
+				local attribute = self.toAttribute[index]
+				if type(vertex[index]) == "string" then
+					assert(self.variablesLookup, "No variables set!")
+					local t = self.variablesLookup[vertex[index]]
+					assert(t, "Variable " .. tostring(vertex[index]) .. " unknown!")
+					table.insert(t, { v, attribute })
+				else
+					vert[attribute] = vertex[index]
+				end
 			end
 			v = v + 1
 		end
@@ -98,19 +135,19 @@ function builder:build()
 	return self
 end
 
-function builder:__index(key)
-	if self.lookup[key] then
+function builder:__index(attribute)
+	if self.lookup[attribute] then
 		return function(self, ...)
 			local arg = { ... }
-			for i = 1, #self.lookup[key] do
-				local var = self.lookup[key][i]
+			for i = 1, #self.lookup[attribute] do
+				local var = self.lookup[attribute][i]
 				self.currentVertex[self.toIndex[var]] = arg[i]
 			end
 			return self
 		end
 	end
 	
-	return builder[key]
+	return builder[attribute]
 end
 
 return constructor
