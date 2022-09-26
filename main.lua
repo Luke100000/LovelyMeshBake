@@ -56,7 +56,7 @@ local blocks = {
 	{ name = "stone", shadow = true, tiled = true },
 }
 
-local zoom = 100
+local zoom = 10
 
 --the world, 0 is used for air
 local world

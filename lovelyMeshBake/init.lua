@@ -1,4 +1,5 @@
 local builder = require((...) .. "/builder")
+local cache = require((...) .. "/cache")
 
 local mat4 = _G.mat4 or require("libs/luaMatrices/mat4")
 
@@ -12,7 +13,7 @@ end
 
 function meta:add(model, quad, variables, x, y, r, sx, sy, ox, oy, kx, ky)
 	--defragment
-	if self:getVertexIntegrity() < self.minIntegrity and self:getIndexIntegrity() < self.minIntegrity then
+	if self:getVertexIntegrity() < self.minIntegrity or self:getIndexIntegrity() < self.minIntegrity then
 		self:defragment()
 	end
 	
@@ -24,44 +25,54 @@ function meta:add(model, quad, variables, x, y, r, sx, sy, ox, oy, kx, ky)
 		self:resizeIndices()
 	end
 	
+	--try to use cache
+	local vertexIndex = self.vertexCache:pop(model.vertexCount)
+	if not vertexIndex then
+		vertexIndex = self.vertexIndex
+		self.vertexIndex = self.vertexIndex + model.vertexCount
+	end
+	
+	local indexIndex = self.indexCache:pop(model.vertexMapLength)
+	if not indexIndex then
+		indexIndex = self.indexIndex
+		self.indexIndex = self.indexIndex + model.vertexMapLength
+	end
+	
 	--place vertices
-	ffi.copy(self.vertices + self.vertexIndex, model.vertices, ffi.sizeof(self.vertexIdentifier) * model.vertexCount)
+	ffi.copy(self.vertices + vertexIndex, model.vertices, ffi.sizeof(self.vertexIdentifier) * model.vertexCount)
 	
 	--set exceptions
 	local t = self.transform:transform(x, y, r, sx, sy, ox, oy, kx, ky)
 	for i = 0, model.vertexCount - 1 do
-		self.vertices[i + self.vertexIndex].x = t[1] * model.vertices[i].x + t[2] * model.vertices[i].y + t[4]
-		self.vertices[i + self.vertexIndex].y = t[5] * model.vertices[i].x + t[6] * model.vertices[i].y + t[8]
+		self.vertices[i + vertexIndex].x = t[1] * model.vertices[i].x + t[2] * model.vertices[i].y + t[4]
+		self.vertices[i + vertexIndex].y = t[5] * model.vertices[i].x + t[6] * model.vertices[i].y + t[8]
 		
-		self.vertices[i + self.vertexIndex].u = model.vertices[i].u * quad[3] + quad[1]
-		self.vertices[i + self.vertexIndex].v = model.vertices[i].v * quad[4] + quad[2]
+		self.vertices[i + vertexIndex].u = model.vertices[i].u * quad[3] + quad[1]
+		self.vertices[i + vertexIndex].v = model.vertices[i].v * quad[4] + quad[2]
 	end
 	
 	--set variables
 	if variables then
 		for i, value in ipairs(variables) do
 			for _, vertex in ipairs(model.variables[i]) do
-				self.vertices[vertex[1] + self.vertexIndex][vertex[2]] = value
+				self.vertices[vertex[1] + vertexIndex][vertex[2]] = value
 			end
 		end
 	end
 	
 	--place indices
 	for i = 0, model.vertexMapLength - 1 do
-		self.indices[i + self.indexIndex] = model.indices[i] + self.vertexIndex
+		self.indices[i + indexIndex] = model.indices[i] + vertexIndex
 	end
 	
 	self.lastChunkId = self.lastChunkId + 1
 	self.chunks[self.lastChunkId] = {
-		self.vertexIndex, model.vertexCount,
-		self.indexIndex, model.vertexMapLength
+		vertexIndex, model.vertexCount,
+		indexIndex, model.vertexMapLength
 	}
 	
 	self.vertexTotal = self.vertexTotal + model.vertexCount
 	self.indexTotal = self.indexTotal + model.vertexMapLength
-	
-	self.vertexIndex = self.vertexIndex + model.vertexCount
-	self.indexIndex = self.indexIndex + model.vertexMapLength
 	
 	self.dirty = true
 	
@@ -79,6 +90,9 @@ function meta:remove(id)
 	
 	self.vertexTotal = self.vertexTotal - chunk[2]
 	self.indexTotal = self.indexTotal - chunk[4]
+	
+	self.vertexCache:push(chunk[2], chunk[1])
+	self.indexCache:push(chunk[4], chunk[3])
 	
 	self.dirty = true
 end
@@ -159,6 +173,9 @@ function meta:defragment()
 	
 	self.vertexTotal = self.vertexIndex
 	self.indexTotal = self.indexIndex
+	
+	self.vertexCache = cache()
+	self.indexCache = cache()
 end
 
 function meta:resizeVertex()
@@ -181,6 +198,8 @@ function meta:resizeVertex()
 	
 	--set atlas
 	self.mesh:setTexture(self.image)
+	
+	self.vertexCache = cache()
 end
 
 function meta:resizeIndices()
@@ -197,6 +216,8 @@ function meta:resizeIndices()
 	if oldVertexMapByteData then
 		ffi.copy(self.indices, oldIndices, ffi.sizeof("uint32_t") * self.indexCapacity / 2)
 	end
+	
+	self.indexCache = cache()
 end
 
 meta.__index = meta
@@ -239,6 +260,8 @@ local function constructor(image, meshFormat)
 	
 	r.lastChunkId = 0
 	r.chunks = { }
+	r.vertexCache = cache()
+	r.indexCache = cache()
 	
 	r:resizeVertex()
 	r:resizeIndices()
