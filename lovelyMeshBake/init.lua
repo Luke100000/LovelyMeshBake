@@ -1,5 +1,4 @@
 local builder = require((...) .. "/builder")
-local spacer = require((...) .. "/spacer")
 
 local mat4 = _G.mat4 or require("libs/luaMatrices/mat4")
 
@@ -12,55 +11,76 @@ function meta:newModel()
 end
 
 function meta:add(model, quad, variables, x, y, r, sx, sy, ox, oy, kx, ky)
-	--place vertices
-	local vertexOffset = false
-	while not vertexOffset do
-		vertexOffset = self.vertexSpace:get(model.vertexCount)
-		if not vertexOffset then
-			self:resizeVertex()
-		end
+	--defragment
+	if self:getVertexIntegrity() < self.minIntegrity and self:getIndexIntegrity() < self.minIntegrity then
+		self:defragment()
 	end
-	ffi.copy(self.vertices + (vertexOffset - 1), model.vertices, ffi.sizeof(self.vertexIdentifier) * model.vertexCount)
+	
+	--resize
+	while self.vertexIndex + model.vertexCount > self.vertexCapacity do
+		self:resizeVertex()
+	end
+	while self.indexIndex + model.vertexMapLength > self.indexCapacity do
+		self:resizeIndices()
+	end
+	
+	--place vertices
+	ffi.copy(self.vertices + self.vertexIndex, model.vertices, ffi.sizeof(self.vertexIdentifier) * model.vertexCount)
 	
 	--set exceptions
 	local t = self.transform:transform(x, y, r, sx, sy, ox, oy, kx, ky)
 	for i = 0, model.vertexCount - 1 do
-		self.vertices[i + vertexOffset - 1].x = t[1] * model.vertices[i].x + t[2] * model.vertices[i].y + t[4]
-		self.vertices[i + vertexOffset - 1].y = t[5] * model.vertices[i].x + t[6] * model.vertices[i].y + t[8]
+		self.vertices[i + self.vertexIndex].x = t[1] * model.vertices[i].x + t[2] * model.vertices[i].y + t[4]
+		self.vertices[i + self.vertexIndex].y = t[5] * model.vertices[i].x + t[6] * model.vertices[i].y + t[8]
 		
-		self.vertices[i + vertexOffset - 1].u = model.vertices[i].u * quad[3] + quad[1]
-		self.vertices[i + vertexOffset - 1].v = model.vertices[i].v * quad[4] + quad[2]
+		self.vertices[i + self.vertexIndex].u = model.vertices[i].u * quad[3] + quad[1]
+		self.vertices[i + self.vertexIndex].v = model.vertices[i].v * quad[4] + quad[2]
 	end
 	
 	--set variables
 	if variables then
 		for i, value in ipairs(variables) do
 			for _, vertex in ipairs(model.variables[i]) do
-				self.vertices[vertex[1] + vertexOffset - 1][vertex[2]] = value
+				self.vertices[vertex[1] + self.vertexIndex][vertex[2]] = value
 			end
 		end
 	end
 	
 	--place indices
-	local indexOffset = false
-	while not indexOffset do
-		indexOffset = self.indexSpace:get(model.vertexMapLength)
-		if not indexOffset then
-			self:resizeIndices()
-		end
-	end
-	self.size = math.max(self.size, indexOffset + model.vertexMapLength - 1)
 	for i = 0, model.vertexMapLength - 1 do
-		self.indices[i + indexOffset - 1] = model.indices[i] + (vertexOffset - 1)
+		self.indices[i + self.indexIndex] = model.indices[i] + self.vertexIndex
 	end
+	
+	self.lastChunkId = self.lastChunkId + 1
+	self.chunks[self.lastChunkId] = {
+		self.vertexIndex, model.vertexCount,
+		self.indexIndex, model.vertexMapLength
+	}
+	
+	self.vertexTotal = self.vertexTotal + model.vertexCount
+	self.indexTotal = self.indexTotal + model.vertexMapLength
+	
+	self.vertexIndex = self.vertexIndex + model.vertexCount
+	self.indexIndex = self.indexIndex + model.vertexMapLength
 	
 	self.dirty = true
 	
-	return vertexOffset, indexOffset
+	return self.lastChunkId
 end
 
-function meta:remove(vertexOffset, indexOffset)
-
+function meta:remove(id)
+	local chunk = self.chunks[id]
+	self.chunks[id] = nil
+	
+	--clear indices
+	for i = chunk[3], chunk[3] + chunk[4] - 1 do
+		self.indices[i] = 0
+	end
+	
+	self.vertexTotal = self.vertexTotal - chunk[2]
+	self.indexTotal = self.indexTotal - chunk[4]
+	
+	self.dirty = true
 end
 
 function meta:translate(x, y)
@@ -88,31 +108,72 @@ function meta:pop()
 end
 
 function meta:draw(...)
-	if self.size > 0 then
+	if self.indexIndex > 0 then
 		if self.dirty then
-			self.mesh:setVertices(self.byteData)
+			self.mesh:setVertices(self.byteData, 1, self.vertexIndex)
 			self.mesh:setVertexMap(self.vertexMapByteData, "uint32")
 			self.dirty = false
 		end
-		self.mesh:setDrawRange(1, self.size)
+		self.mesh:setDrawRange(1, self.indexIndex)
 		love.graphics.draw(self.mesh, ...)
 	end
 end
 
+function meta:getVertexIntegrity()
+	return self.vertexTotal / self.vertexIndex
+end
+
+function meta:getIndexIntegrity()
+	return self.indexTotal / self.indexIndex
+end
+
+function meta:defragment()
+	local oldByteData = self.byteData
+	local oldVertices = self.vertices
+	local oldVertexMapByteData = self.vertexMapByteData
+	local oldIndices = self.indices
+	
+	--create
+	self.byteData = love.data.newByteData(ffi.sizeof(self.vertexIdentifier) * self.vertexCapacity)
+	self.vertices = ffi.cast(self.vertexIdentifier .. "*", self.byteData:getFFIPointer())
+	self.vertexMapByteData = love.data.newByteData(ffi.sizeof("uint32_t") * self.indexCapacity)
+	self.indices = ffi.cast("uint32_t*", self.vertexMapByteData:getFFIPointer())
+	
+	--copy old part
+	self.vertexIndex = 0
+	self.indexIndex = 0
+	if oldByteData and oldVertexMapByteData then
+		for id, chunk in pairs(self.chunks) do
+			ffi.copy(self.vertices + self.vertexIndex, oldVertices + chunk[1], ffi.sizeof(self.vertexIdentifier) * chunk[2])
+			
+			--move indices
+			for i = 0, chunk[4] - 1 do
+				self.indices[self.indexIndex + i] = oldIndices[i + chunk[3]] - chunk[1] + self.vertexIndex
+			end
+			
+			self.chunks[id] = { self.vertexIndex, chunk[2], self.indexIndex, chunk[4] }
+			self.vertexIndex = self.vertexIndex + chunk[2]
+			self.indexIndex = self.indexIndex + chunk[4]
+		end
+	end
+	
+	self.vertexTotal = self.vertexIndex
+	self.indexTotal = self.indexIndex
+end
+
 function meta:resizeVertex()
-	self.vertexSpace:increase(self.vertexCapacity)
 	self.vertexCapacity = self.vertexCapacity * 2
 	
 	local oldByteData = self.byteData
-	local oldVertex = self.vertices
+	local oldVertices = self.vertices
 	
 	--create
-	self.byteData = love.data.newByteData(ffi.sizeof(self.vertexIdentifier) * self.vertexCapacity * 4)
+	self.byteData = love.data.newByteData(ffi.sizeof(self.vertexIdentifier) * self.vertexCapacity)
 	self.vertices = ffi.cast(self.vertexIdentifier .. "*", self.byteData:getFFIPointer())
 	
 	--copy old part
 	if oldByteData then
-		ffi.copy(self.vertices, oldVertex, ffi.sizeof(self.vertexIdentifier) * self.vertexCapacity * 4 / 2)
+		ffi.copy(self.vertices, oldVertices, ffi.sizeof(self.vertexIdentifier) * self.vertexCapacity / 2)
 	end
 	
 	--new mesh
@@ -123,19 +184,18 @@ function meta:resizeVertex()
 end
 
 function meta:resizeIndices()
-	self.indexSpace:increase(self.indexCapacity)
 	self.indexCapacity = self.indexCapacity * 2
 	
 	local oldVertexMapByteData = self.vertexMapByteData
 	local oldIndices = self.indices
 	
 	--create
-	self.vertexMapByteData = love.data.newByteData(ffi.sizeof("uint32_t") * self.indexCapacity * 6)
+	self.vertexMapByteData = love.data.newByteData(ffi.sizeof("uint32_t") * self.indexCapacity)
 	self.indices = ffi.cast("uint32_t*", self.vertexMapByteData:getFFIPointer())
 	
 	--copy old part
 	if oldVertexMapByteData then
-		ffi.copy(self.indices, oldIndices, ffi.sizeof("uint32_t") * self.indexCapacity * 6 / 2)
+		ffi.copy(self.indices, oldIndices, ffi.sizeof("uint32_t") * self.indexCapacity / 2)
 	end
 end
 
@@ -166,15 +226,19 @@ local function constructor(image, meshFormat)
 	--current transform
 	r.transform = mat4.getIdentity()
 	
-	--the data space manager
-	r.vertexSpace = spacer(1)
-	r.indexSpace = spacer(1)
+	r.minIntegrity = 0.9
 	
-	--maximum used index
-	r.size = 0
+	r.vertexIndex = 0
+	r.indexIndex = 0
 	
 	r.vertexCapacity = 1
 	r.indexCapacity = 1
+	
+	r.vertexTotal = 0
+	r.indexTotal = 0
+	
+	r.lastChunkId = 0
+	r.chunks = { }
 	
 	r:resizeVertex()
 	r:resizeIndices()
