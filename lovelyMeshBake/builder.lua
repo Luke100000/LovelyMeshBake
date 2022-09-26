@@ -54,11 +54,11 @@ end
 
 --variables allows to set values at runtime
 function builder:variables(...)
-	self.variables = { }
+	self.variablesList = { }
 	self.variablesLookup = { }
 	for _, v in ipairs({ ... }) do
 		local t = { }
-		table.insert(self.variables, t)
+		table.insert(self.variablesList, t)
 		self.variablesLookup[v] = t
 	end
 	return self

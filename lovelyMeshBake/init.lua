@@ -54,7 +54,7 @@ function meta:add(model, quad, variables, x, y, r, sx, sy, ox, oy, kx, ky)
 	--set variables
 	if variables then
 		for i, value in ipairs(variables) do
-			for _, vertex in ipairs(model.variables[i]) do
+			for _, vertex in ipairs(model.variablesList[i]) do
 				self.vertices[vertex[1] + vertexIndex][vertex[2]] = value
 			end
 		end
@@ -263,8 +263,10 @@ local function constructor(image, meshFormat)
 	r.vertexCache = cache()
 	r.indexCache = cache()
 	
-	r:resizeVertex()
-	r:resizeIndices()
+	if image then
+		r:resizeVertex()
+		r:resizeIndices()
+	end
 	
 	return r
 end
