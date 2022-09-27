@@ -36,6 +36,22 @@ local function constructor(renderer)
 		b.empty.__index[i] = 0
 	end
 	
+	b.postProcessors = { }
+	
+	--positions
+	b:postProcessor(function(dst, src, t, variables)
+		dst.x = t[1] * src.x + t[2] * src.y + t[4]
+		dst.y = t[5] * src.x + t[6] * src.y + t[8]
+	end)
+	
+	--uv
+	b:postProcessor(function(dst, src, t, variables)
+		local quad = variables.quad
+		assert(quad, "Quad variable required.")
+		dst.u = src.u * quad[3] + quad[1]
+		dst.v = src.v * quad[4] + quad[2]
+	end)
+	
 	--start first vertex
 	b:nextVertex()
 	
@@ -49,6 +65,12 @@ function builder:default(attribute, ...)
 		local var = self.lookup[attribute][i]
 		self.empty.__index[self.toIndex[var]] = arg[i]
 	end
+	return self
+end
+
+--adds a postprocessor
+function builder:postProcessor(processor)
+	table.insert(self.postProcessors, processor)
 	return self
 end
 

@@ -11,7 +11,7 @@ function meta:newModel()
 	return builder(self)
 end
 
-function meta:add(model, quad, variables, x, y, r, sx, sy, ox, oy, kx, ky)
+function meta:add(model, variables, x, y, r, sx, sy, ox, oy, kx, ky)
 	--defragment
 	if self:getVertexIntegrity() < self.minIntegrity or self:getIndexIntegrity() < self.minIntegrity then
 		self:defragment()
@@ -41,22 +41,23 @@ function meta:add(model, quad, variables, x, y, r, sx, sy, ox, oy, kx, ky)
 	--place vertices
 	ffi.copy(self.vertices + vertexIndex, model.vertices, ffi.sizeof(self.vertexIdentifier) * model.vertexCount)
 	
-	--set exceptions
-	local t = self.transform:transform(x, y, r, sx, sy, ox, oy, kx, ky)
-	for i = 0, model.vertexCount - 1 do
-		self.vertices[i + vertexIndex].x = t[1] * model.vertices[i].x + t[2] * model.vertices[i].y + t[4]
-		self.vertices[i + vertexIndex].y = t[5] * model.vertices[i].x + t[6] * model.vertices[i].y + t[8]
-		
-		self.vertices[i + vertexIndex].u = model.vertices[i].u * quad[3] + quad[1]
-		self.vertices[i + vertexIndex].v = model.vertices[i].v * quad[4] + quad[2]
-	end
-	
 	--set variables
 	if variables then
 		for i, value in ipairs(variables) do
-			for _, vertex in ipairs(model.variablesList[i]) do
-				self.vertices[vertex[1] + vertexIndex][vertex[2]] = value
+			local t = model.variablesList[i] or model.variablesLookup[i]
+			if t then
+				for _, vertex in ipairs(t) do
+					self.vertices[vertex[1] + vertexIndex][vertex[2]] = value
+				end
 			end
+		end
+	end
+	
+	--set exceptions
+	local t = self.transform:transform(x, y, r, sx, sy, ox, oy, kx, ky)
+	for _, postProcessor in ipairs(model.postProcessors) do
+		for i = 0, model.vertexCount - 1 do
+			postProcessor(self.vertices[i + vertexIndex], model.vertices[i], t, variables)
 		end
 	end
 	
@@ -75,6 +76,15 @@ function meta:add(model, quad, variables, x, y, r, sx, sy, ox, oy, kx, ky)
 	self.indexTotal = self.indexTotal + model.vertexMapLength
 	
 	self.dirty = true
+	
+	--optionally track the ids
+	if self.trackerId then
+		if self.tracker[self.trackerId] then
+			table.insert(self.tracker[self.trackerId], self.lastChunkId)
+		else
+			self.tracker[self.trackerId] = { self.lastChunkId }
+		end
+	end
 	
 	return self.lastChunkId
 end
@@ -119,6 +129,21 @@ end
 
 function meta:pop()
 	self.transform = table.remove(self.stack)
+end
+
+--setting a tracker keeps a list of all meshes with that id, which can then be retrieved later
+function meta:setTrackerId(trackerId)
+	self.trackerId = trackerId
+end
+
+--setting a tracker keeps a list of all meshes with that id, which can then be retrieved later
+function meta:removeTracked(trackerId)
+	if self.tracker[trackerId] then
+		for _, i in pairs(self.tracker[trackerId]) do
+			self:remove(i)
+		end
+		self.tracker[trackerId] = nil
+	end
 end
 
 function meta:draw(...)
@@ -232,7 +257,6 @@ local function constructor(image, meshFormat)
 	local r = setmetatable({}, meta)
 	
 	r.image = image
-	
 	r.meshFormat = meshFormat or defaultMeshFormat
 	r.vertexIdentifier = "vertex_" .. tostring(r.meshFormat):sub(8)
 	
@@ -257,6 +281,8 @@ local function constructor(image, meshFormat)
 	
 	r.vertexTotal = 0
 	r.indexTotal = 0
+	
+	r.tracker = { }
 	
 	r.lastChunkId = 0
 	r.chunks = { }
