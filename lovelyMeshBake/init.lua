@@ -253,11 +253,17 @@ local defaultMeshFormat = {
 	{ "VertexColor", "byte", 4, "color", { "r", "g", "b", "a" } },
 }
 
+local defaultArrayMeshFormat = {
+	{ "VertexPosition", "float", 2, "vertex", { "x", "y" } },
+	{ "VertexTexCoord", "float", 2, "uv", { "u", "v" } },
+	{ "VertexColor", "byte", 4, "color", { "r", "g", "b", "a" } },
+}
+
 local function constructor(image, meshFormat)
 	local r = setmetatable({}, meta)
 	
 	r.image = image
-	r.meshFormat = meshFormat or defaultMeshFormat
+	r.meshFormat = meshFormat or (image and image:getTextureType() == "array" and defaultArrayMeshFormat or defaultMeshFormat)
 	r.vertexIdentifier = "vertex_" .. tostring(r.meshFormat):sub(8)
 	
 	--build C struct

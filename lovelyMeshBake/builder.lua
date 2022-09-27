@@ -47,9 +47,13 @@ local function constructor(renderer)
 	--uv
 	b:postProcessor(function(dst, src, t, variables)
 		local quad = variables.quad
-		assert(quad, "Quad variable required.")
-		dst.u = src.u * quad[3] + quad[1]
-		dst.v = src.v * quad[4] + quad[2]
+		if quad then
+			dst.u = src.u * quad[3] + quad[1]
+			dst.v = src.v * quad[4] + quad[2]
+		else
+			assert(variables.layer, "Quad or layer variable required!")
+			dst.layer = variables.layer - 1
+		end
 	end)
 	
 	--start first vertex
