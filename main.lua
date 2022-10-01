@@ -121,12 +121,12 @@ local function renderBlock(x, y)
 				(eb and el and hasShadow(x - 1, y + 1)) and 0 or 1,
 				eb and 0 or 1,
 				(eb and er and hasShadow(x + 1, y + 1)) and 0 or 1,
-				quad = fastLove:getQuad(fastLove:getSprite(textures[b.name]), b.tiled and quads[x % 2 + 1][y % 2 + 1])
+				quad = fastLove:getQuad(textures[b.name], b.tiled and quads[x % 2 + 1][y % 2 + 1])
 			}
 			
 			indices[y][x] = renderer:add(models.edges, variables, x - 1, y - 1)
 		else
-			local quad = fastLove:getQuad(fastLove:getSprite(textures[b.name]), b.tiled and quads[x % 2 + 1][y % 2 + 1])
+			local quad = fastLove:getQuad(textures[b.name], b.tiled and quads[x % 2 + 1][y % 2 + 1])
 			indices[y][x] = renderer:add(models.simple, { quad = quad }, x - 1, y - 1)
 		end
 	else
