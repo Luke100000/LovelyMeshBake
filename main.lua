@@ -155,6 +155,9 @@ local function setBlock(bx, by, b)
 end
 
 function love.draw()
+	--make sure fastLove writes mipmaps
+	fastLove:getImage()
+	
 	--draw the world
 	love.graphics.setShader(shader)
 	renderer:draw(0, 0, 0, zoom)
